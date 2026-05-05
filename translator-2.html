@@ -1,0 +1,600 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>LinguaQ — Traductor con Qwen2</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,wght@0,300;0,600;1,300&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --bg: #0d0f12;
+      --surface: #14181e;
+      --surface2: #1c2230;
+      --border: #2a3040;
+      --accent: #c8f060;
+      --accent2: #60c8f0;
+      --text: #e8edf5;
+      --muted: #6a7590;
+      --err: #f06070;
+      --radius: 14px;
+    }
+
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: 'DM Mono', monospace;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 40px 20px 80px;
+      overflow-x: hidden;
+    }
+
+    /* Ambient background blobs */
+    body::before, body::after {
+      content: '';
+      position: fixed;
+      border-radius: 50%;
+      filter: blur(120px);
+      opacity: 0.12;
+      pointer-events: none;
+      z-index: 0;
+    }
+    body::before {
+      width: 600px; height: 600px;
+      background: var(--accent);
+      top: -200px; left: -200px;
+    }
+    body::after {
+      width: 500px; height: 500px;
+      background: var(--accent2);
+      bottom: -150px; right: -150px;
+    }
+
+    .container {
+      position: relative;
+      z-index: 1;
+      width: 100%;
+      max-width: 820px;
+    }
+
+    header {
+      text-align: center;
+      margin-bottom: 48px;
+    }
+
+    .logo {
+      font-family: 'Fraunces', serif;
+      font-size: 3rem;
+      font-weight: 600;
+      letter-spacing: -1px;
+      color: var(--text);
+    }
+    .logo span { color: var(--accent); }
+
+    .tagline {
+      font-size: 0.75rem;
+      color: var(--muted);
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      margin-top: 6px;
+    }
+
+    .model-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      margin-top: 14px;
+      padding: 4px 12px;
+      border: 1px solid var(--border);
+      border-radius: 999px;
+      font-size: 0.7rem;
+      color: var(--muted);
+      background: var(--surface);
+    }
+    .model-badge .dot {
+      width: 6px; height: 6px;
+      border-radius: 50%;
+      background: var(--accent);
+      animation: pulse 2s infinite;
+    }
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.3; }
+    }
+
+    /* Status bar */
+    .status-bar {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 12px 18px;
+      margin-bottom: 28px;
+      font-size: 0.72rem;
+      color: var(--muted);
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      min-height: 44px;
+      transition: border-color 0.3s;
+    }
+    .status-bar.loading { border-color: var(--accent); color: var(--accent); }
+    .status-bar.ready   { border-color: #3a5040; color: #7abf8a; }
+    .status-bar.error   { border-color: var(--err); color: var(--err); }
+
+    .spinner {
+      width: 14px; height: 14px;
+      border: 2px solid currentColor;
+      border-top-color: transparent;
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+      flex-shrink: 0;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    .progress-wrap {
+      flex: 1;
+      height: 3px;
+      background: var(--border);
+      border-radius: 2px;
+      overflow: hidden;
+      display: none;
+    }
+    .progress-bar {
+      height: 100%;
+      background: var(--accent);
+      border-radius: 2px;
+      width: 0%;
+      transition: width 0.3s;
+    }
+
+    /* Language selector row */
+    .lang-row {
+      display: grid;
+      grid-template-columns: 1fr auto 1fr;
+      gap: 12px;
+      align-items: center;
+      margin-bottom: 18px;
+    }
+
+    select {
+      appearance: none;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      color: var(--text);
+      font-family: 'DM Mono', monospace;
+      font-size: 0.78rem;
+      padding: 10px 36px 10px 14px;
+      cursor: pointer;
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' fill='%236a7590' viewBox='0 0 16 16'%3E%3Cpath d='M7.247 11.14 2.451 5.658C1.885 5.013 2.345 4 3.204 4h9.592a1 1 0 0 1 .753 1.659l-4.796 5.48a1 1 0 0 1-1.506 0z'/%3E%3C/svg%3E");
+      background-repeat: no-repeat;
+      background-position: right 12px center;
+      width: 100%;
+      transition: border-color 0.2s;
+    }
+    select:focus { outline: none; border-color: var(--accent); }
+
+    .swap-btn {
+      width: 40px; height: 40px;
+      border-radius: 50%;
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      color: var(--muted);
+      cursor: pointer;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 1rem;
+      transition: all 0.2s;
+      flex-shrink: 0;
+    }
+    .swap-btn:hover { border-color: var(--accent); color: var(--accent); transform: rotate(180deg); }
+
+    /* Text areas */
+    .panels {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px;
+      margin-bottom: 18px;
+    }
+    @media (max-width: 580px) { .panels { grid-template-columns: 1fr; } }
+
+    .panel {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      overflow: hidden;
+      transition: border-color 0.2s;
+    }
+    .panel:focus-within { border-color: var(--accent); }
+
+    .panel-label {
+      font-size: 0.65rem;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      color: var(--muted);
+      padding: 10px 14px 6px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    textarea, .output-area {
+      width: 100%;
+      min-height: 160px;
+      background: transparent;
+      border: none;
+      color: var(--text);
+      font-family: 'Fraunces', serif;
+      font-size: 1.05rem;
+      font-weight: 300;
+      line-height: 1.6;
+      padding: 16px;
+      resize: vertical;
+    }
+    textarea::placeholder { color: var(--muted); font-style: italic; }
+    textarea:focus { outline: none; }
+
+    .output-area {
+      display: block;
+      white-space: pre-wrap;
+      word-break: break-word;
+      color: var(--accent2);
+    }
+    .output-area.translating {
+      animation: blink 1s steps(1) infinite;
+    }
+    @keyframes blink { 50% { opacity: 0.5; } }
+
+    /* Quick examples */
+    .examples-label {
+      font-size: 0.65rem;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      color: var(--muted);
+      margin-bottom: 10px;
+    }
+    .examples {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-bottom: 24px;
+    }
+    .example-chip {
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 999px;
+      padding: 6px 14px;
+      font-size: 0.72rem;
+      color: var(--muted);
+      cursor: pointer;
+      transition: all 0.2s;
+      font-family: 'Fraunces', serif;
+      font-style: italic;
+    }
+    .example-chip:hover {
+      border-color: var(--accent);
+      color: var(--accent);
+      background: rgba(200,240,96,0.05);
+    }
+
+    /* Translate button */
+    .translate-btn {
+      width: 100%;
+      padding: 16px;
+      background: var(--accent);
+      color: #0a0c0f;
+      border: none;
+      border-radius: var(--radius);
+      font-family: 'DM Mono', monospace;
+      font-size: 0.85rem;
+      font-weight: 500;
+      letter-spacing: 0.05em;
+      cursor: pointer;
+      transition: all 0.2s;
+      text-transform: uppercase;
+    }
+    .translate-btn:hover:not(:disabled) {
+      background: #d4f570;
+      transform: translateY(-1px);
+      box-shadow: 0 8px 30px rgba(200,240,96,0.2);
+    }
+    .translate-btn:disabled {
+      opacity: 0.4;
+      cursor: not-allowed;
+      transform: none;
+    }
+
+    footer {
+      margin-top: 48px;
+      text-align: center;
+      font-size: 0.65rem;
+      color: var(--muted);
+      letter-spacing: 0.05em;
+    }
+    footer a { color: var(--muted); text-decoration: underline; }
+
+    .char-count {
+      font-size: 0.6rem;
+      color: var(--muted);
+      padding: 4px 14px 8px;
+      text-align: right;
+    }
+
+    /* Copy button */
+    .copy-btn {
+      background: none;
+      border: 1px solid var(--border);
+      color: var(--muted);
+      border-radius: 6px;
+      padding: 4px 10px;
+      font-size: 0.62rem;
+      cursor: pointer;
+      font-family: 'DM Mono', monospace;
+      float: right;
+      margin: 4px 10px 0 0;
+      transition: all 0.2s;
+    }
+    .copy-btn:hover { border-color: var(--accent2); color: var(--accent2); }
+  </style>
+</head>
+<body>
+<div class="container">
+  <header>
+    <div class="logo">Lingua<span>Q</span></div>
+    <div class="tagline">Traducción local · sin servidor · sin API key</div>
+    <div class="model-badge">
+      <span class="dot"></span>
+      Qwen2.5-0.5B-Instruct · Transformers.js · 100% en tu navegador
+    </div>
+  </header>
+
+  <div class="status-bar loading" id="statusBar">
+    <span class="spinner" id="statusSpinner"></span>
+    <span id="statusText">Cargando Transformers.js…</span>
+    <div class="progress-wrap" id="progressWrap">
+      <div class="progress-bar" id="progressBar"></div>
+    </div>
+  </div>
+
+  <div class="lang-row">
+    <select id="sourceLang">
+      <option value="English">🇺🇸 Inglés</option>
+      <option value="Spanish">🇲🇽 Español</option>
+      <option value="French">🇫🇷 Francés</option>
+      <option value="German">🇩🇪 Alemán</option>
+      <option value="Portuguese">🇧🇷 Portugués</option>
+      <option value="Italian">🇮🇹 Italiano</option>
+      <option value="Japanese">🇯🇵 Japonés</option>
+      <option value="Chinese">🇨🇳 Chino</option>
+    </select>
+    <button class="swap-btn" id="swapBtn" title="Intercambiar idiomas">⇄</button>
+    <select id="targetLang">
+      <option value="Spanish">🇲🇽 Español</option>
+      <option value="English">🇺🇸 Inglés</option>
+      <option value="French">🇫🇷 Francés</option>
+      <option value="German">🇩🇪 Alemán</option>
+      <option value="Portuguese">🇧🇷 Portugués</option>
+      <option value="Italian">🇮🇹 Italiano</option>
+      <option value="Japanese">🇯🇵 Japonés</option>
+      <option value="Chinese">🇨🇳 Chino</option>
+    </select>
+  </div>
+
+  <div class="panels">
+    <div class="panel">
+      <div class="panel-label">Texto original</div>
+      <textarea id="inputText" placeholder="Escribe o pega tu texto aquí…" maxlength="1000"></textarea>
+      <div class="char-count"><span id="charCount">0</span> / 1000</div>
+    </div>
+    <div class="panel">
+      <div class="panel-label">
+        Traducción
+        <button class="copy-btn" id="copyBtn">copiar</button>
+      </div>
+      <div class="output-area" id="outputText">—</div>
+    </div>
+  </div>
+
+  <div class="examples-label">Ejemplos rápidos</div>
+  <div class="examples">
+    <div class="example-chip" data-text="I like soccer">I like soccer</div>
+    <div class="example-chip" data-text="How are you?">How are you?</div>
+    <div class="example-chip" data-text="What time is it?">What time is it?</div>
+    <div class="example-chip" data-text="The weather is beautiful today">The weather is beautiful today</div>
+    <div class="example-chip" data-text="I love programming">I love programming</div>
+    <div class="example-chip" data-text="Where is the nearest restaurant?">Where is the nearest restaurant?</div>
+  </div>
+
+  <button class="translate-btn" id="translateBtn" disabled>⏳ Cargando modelo…</button>
+
+  <footer>
+    Modelo: <a href="https://huggingface.co/onnx-community/Qwen2.5-0.5B-Instruct" target="_blank">onnx-community/Qwen2.5-0.5B-Instruct</a> ·
+    Motor: <a href="https://huggingface.co/docs/transformers.js" target="_blank">Transformers.js</a> ·
+    Todo corre en tu dispositivo. Ningún texto sale a Internet.
+  </footer>
+</div>
+
+<script type="module">
+  import { pipeline, env } from 'https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.5.1/dist/transformers.js';
+
+  env.allowLocalModels = false;
+  env.useBrowserCache = true;
+
+  // onnx-community has the pre-converted ONNX weights with correct file layout
+  const MODEL_ID = 'onnx-community/Qwen2.5-0.5B-Instruct';
+
+  const statusBar   = document.getElementById('statusBar');
+  const statusText  = document.getElementById('statusText');
+  const statusSpinner = document.getElementById('statusSpinner');
+  const progressWrap= document.getElementById('progressWrap');
+  const progressBar = document.getElementById('progressBar');
+  const translateBtn= document.getElementById('translateBtn');
+  const inputText   = document.getElementById('inputText');
+  const outputText  = document.getElementById('outputText');
+  const charCount   = document.getElementById('charCount');
+  const copyBtn     = document.getElementById('copyBtn');
+  const swapBtn     = document.getElementById('swapBtn');
+  const sourceLang  = document.getElementById('sourceLang');
+  const targetLang  = document.getElementById('targetLang');
+
+  let generator = null;
+
+  function setStatus(type, text, progress = null) {
+    statusBar.className = 'status-bar ' + type;
+    statusText.textContent = text;
+    statusSpinner.style.display = (type === 'loading') ? 'block' : 'none';
+    if (progress !== null) {
+      progressWrap.style.display = 'block';
+      progressBar.style.width = progress + '%';
+    } else {
+      progressWrap.style.display = 'none';
+    }
+  }
+
+  // Load model
+  async function loadModel() {
+    try {
+      setStatus('loading', 'Descargando Qwen2-0.5B-Instruct (primera vez ~1GB)…', 0);
+
+      generator = await pipeline(
+        'text-generation',
+        MODEL_ID,
+        {
+          dtype: 'q4',   // quantized 4-bit — smaller & faster
+          progress_callback: (p) => {
+            if (p.status === 'downloading' || p.status === 'progress') {
+              const pct = p.progress ? Math.round(p.progress) : 0;
+              const loaded = p.loaded ? (p.loaded / 1e6).toFixed(0) : '?';
+              const total  = p.total  ? (p.total  / 1e6).toFixed(0) : '?';
+              setStatus('loading', `Descargando modelo… ${loaded} MB / ${total} MB`, pct);
+            } else if (p.status === 'initiate') {
+              setStatus('loading', `Iniciando: ${p.file || ''}`, null);
+            } else if (p.status === 'done') {
+              setStatus('loading', `Cargando pesos…`, null);
+            }
+          }
+        }
+      );
+
+      setStatus('ready', '✓ Modelo listo — traduce sin límites, sin servidor.');
+      translateBtn.disabled = false;
+      translateBtn.textContent = '→ Traducir';
+    } catch (err) {
+      setStatus('error', `Error al cargar el modelo: ${err.message}`);
+      console.error(err);
+    }
+  }
+
+  // Translate
+  async function translate() {
+    const text = inputText.value.trim();
+    if (!text) return;
+
+    const src = sourceLang.value;
+    const tgt = targetLang.value;
+
+    if (src === tgt) {
+      outputText.textContent = text;
+      return;
+    }
+
+    translateBtn.disabled = true;
+    translateBtn.textContent = '⟳ Traduciendo…';
+    outputText.textContent = '…';
+    outputText.classList.add('translating');
+    setStatus('loading', `Traduciendo de ${src} a ${tgt}…`, null);
+
+    const prompt = `Translate the following ${src} text to ${tgt}. Output ONLY the translation, no explanations, no extra text.\n\n${src}: ${text}\n${tgt}:`;
+
+    try {
+      const messages = [
+        { role: 'system', content: `You are a professional translator. Translate text accurately from ${src} to ${tgt}. Output only the translated text.` },
+        { role: 'user',   content: prompt }
+      ];
+
+      const result = await generator(messages, {
+        max_new_tokens: 200,
+        temperature: 0.3,
+        do_sample: true,
+        repetition_penalty: 1.1,
+      });
+
+      let translation = '';
+      if (result && result[0] && result[0].generated_text) {
+        const generated = result[0].generated_text;
+        // Extract assistant reply
+        if (Array.isArray(generated)) {
+          const assistantMsg = generated.find(m => m.role === 'assistant');
+          translation = assistantMsg ? assistantMsg.content.trim() : '';
+        } else {
+          translation = String(generated).trim();
+          // Strip the prompt if echoed
+          const marker = `${tgt}:`;
+          const idx = translation.lastIndexOf(marker);
+          if (idx !== -1) translation = translation.slice(idx + marker.length).trim();
+        }
+      }
+
+      outputText.textContent = translation || '(sin resultado)';
+      setStatus('ready', `✓ Traducción lista · ${src} → ${tgt}`);
+    } catch (err) {
+      outputText.textContent = '⚠ Error: ' + err.message;
+      setStatus('error', `Error durante la traducción: ${err.message}`);
+      console.error(err);
+    } finally {
+      outputText.classList.remove('translating');
+      translateBtn.disabled = false;
+      translateBtn.textContent = '→ Traducir';
+    }
+  }
+
+  // Events
+  inputText.addEventListener('input', () => {
+    charCount.textContent = inputText.value.length;
+  });
+
+  translateBtn.addEventListener('click', translate);
+
+  inputText.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && e.ctrlKey) translate();
+  });
+
+  document.querySelectorAll('.example-chip').forEach(chip => {
+    chip.addEventListener('click', () => {
+      inputText.value = chip.dataset.text;
+      charCount.textContent = chip.dataset.text.length;
+      outputText.textContent = '—';
+    });
+  });
+
+  swapBtn.addEventListener('click', () => {
+    const sv = sourceLang.value;
+    const tv = targetLang.value;
+    // Find options and set
+    for (let o of sourceLang.options) if (o.value === tv) { sourceLang.value = tv; break; }
+    for (let o of targetLang.options) if (o.value === sv) { targetLang.value = sv; break; }
+    // Swap text
+    const out = outputText.textContent;
+    if (out && out !== '—' && out !== '…') {
+      inputText.value = out;
+      charCount.textContent = out.length;
+      outputText.textContent = '—';
+    }
+  });
+
+  copyBtn.addEventListener('click', () => {
+    const txt = outputText.textContent;
+    if (txt && txt !== '—') {
+      navigator.clipboard.writeText(txt).then(() => {
+        copyBtn.textContent = '✓ copiado';
+        setTimeout(() => { copyBtn.textContent = 'copiar'; }, 1500);
+      });
+    }
+  });
+
+  loadModel();
+</script>
+</body>
+</html>
